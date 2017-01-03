@@ -2,6 +2,7 @@
 #include <sdktools>
 #include <admin>
 #include <timers>
+#include <events>
 
 ConVar g_WarmupPause;
 ConVar g_RestartGame;
@@ -12,12 +13,20 @@ int clientThatPaused;
 int requiredReadies = 10;
 int requiredReadiesForceStart = 8;
 int connectedClients = 0;
+bool knifeRound = false;
+int knifeWinner;
+bool knifeVote = false;
+int knifeVoteStay=0;
+int knifeVoteSwitch=0;
+bool clientVoteStatus[MAXPLAYERS + 1];
+int CS_TEAM_CT = 3;
+int CS_TEAM_T = 2;
 
 public Plugin:myinfo = 
 {
 	name = "Simple ReadyUP System",
 	author = "Bladesmc",
-	description = "!ready, !unready, !forcestart",
+	description = "!pughelp",
 	version = "1.0",
 	url = "steamcommunity.com/groups/weplaygamesgoodyo"
 }
@@ -62,10 +71,18 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_votestart", Command_ForceStartVote, "Starts a vote to begin the match with less than 10 players.");
 	RegConsoleCmd("sm_vs", Command_ForceStartVote, "Starts a vote to begin the match with less than 10 players.");
 	
+	//KNIFEROUND
+	RegAdminCmd("sm_kniferound", Command_KnifeRound, ADMFLAG_CONVARS, "Kniferound");
+	RegConsoleCmd("sm_stay", Command_VoteStay, "Vote to stay on your side");
+	RegConsoleCmd("sm_switch", Command_VoteSwitch, "Vote to switch");
+	
 	//REGISTER ADMIN COMMANDS
 	RegAdminCmd("sm_forcestart", Command_ForceStart, ADMFLAG_CONVARS, "Force match to start without all players.");
 	RegAdminCmd("sm_notlive", Command_NotLive, ADMFLAG_CONVARS, "Force warmup.");
 	RegAdminCmd("sm_forceunpause", Command_ForceUnpause, ADMFLAG_CONVARS, "Force unpause.");
+	
+	//HOOKS
+	HookEvent("round_end", Event_RoundEnd, EventHookMode_Post);
 }
 
 public void handleWarmup()
@@ -106,7 +123,7 @@ public int handleReady(bool action)
 	if(readyCount == requiredReadies)
 	{
 		PrintToChatAll("[BLADESMC] All players are ready!");
-		startMatch();
+		startKnifeRound();
 	}
 	return 0;
 }
@@ -115,7 +132,8 @@ public int handleReady(bool action)
 //Start the match my dudes!
 public void startMatch()
 {
-	
+	ServerCommand("exec gamemode_competitive.cfg");
+	ServerCommand("bot_kick");
 	//g_WarmupTime.IntValue = 1;
 	//g_WarmupPause.IntValue = 0;
 	//GO LIVE
@@ -132,10 +150,57 @@ public void startMatch()
 	PrintToChatAll("[BLADESMC] LIVE ON 3 RESTARTS!!!");
 	//PrintToChatAll("[BLADESMC] LIVE IN 5 SECONDS!!!");
 	*/
-	
 	live = true;
 }
 
+public void startKnifeRound()
+{
+	ServerCommand("mp_freezetime 5");
+	ServerCommand("mp_t_default_secondary \"\" ");
+	ServerCommand("mp_ct_default_secondary \"\" ");
+	ServerCommand("mp_give_player_c4 0");
+	ServerCommand("mp_buytime 0");
+	ServerCommand("mp_maxmoney 0");
+	ServerCommand("mp_warmup_end");
+	knifeRound = true;
+	PrintToChatAll("[BLADESMC] Knife for sides started!");
+}
+
+//KNIFEROUND
+public Action Command_KnifeRound(int client, int args)
+{
+	startKnifeRound();
+}
+
+public Action Command_VoteStay(int client, int args)
+{
+	if(knifeVote && !clientVoteStatus[client])
+	{
+		int team = GetClientTeam(client);
+		if (team == knifeWinner) {
+			clientVoteStatus[client] = true;
+			knifeVoteStay++;
+			PrintToChat(client, "[BLADESMC] You have voted to stay.");
+		} else {
+			PrintToChat(client, "[BLADESMC] You did not win the kniferound.");
+		}
+	}
+}
+
+public Action Command_VoteSwitch(int client, int args)
+{
+	if(knifeVote && !clientVoteStatus[client])
+	{
+		int team = GetClientTeam(client);
+		if (team == knifeWinner) {
+			clientVoteStatus[client] = true;
+			knifeVoteSwitch++;
+			PrintToChat(client, "[BLADESMC] You have voted to switch.");
+		} else {
+			PrintToChat(client, "[BLADESMC] You did not win the kniferound.");
+		}
+	}
+}
 
 //READY
 public Action Command_Ready(int client, int args)
@@ -165,8 +230,8 @@ public Action Command_Ready(int client, int args)
 		PrintToChat(client, "[BLADESMC] You are now ready!");
 	}
 	
-	//Tell them their client ID and Status
-	PrintToChat(client, "[BLADESMC] Client id: %d, Ready Status: %b", client, readyStatus[client]);
+	//Print player info etc
+	playerInfo(client);
 	
 	return Plugin_Continue;
 }
@@ -200,9 +265,21 @@ public Action Command_NotReady(int client, int args)
 		readyStatus[client] = false;
 		PrintToChat(client, "[BLADESMC] You are not ready!");
 	}
-	PrintToChat(client, "[BLADESMC] Client id: %d, Ready Status: %b", client, readyStatus[client]);
+	//Print player info etc
+	playerInfo(client);
 	
 	return Plugin_Continue;
+}
+
+//PRINT  ClientID and ReadyStatus
+public void playerInfo(int client)
+{
+	if(readyStatus[client])
+	{
+		PrintToChat(client, "[BLADESMC] Client id: %d, Ready Status: ready.", client);
+	} else {
+		PrintToChat(client, "[BLADESMC] Client id: %d, Ready Status: not ready.", client);
+	}
 }
 
 
@@ -217,7 +294,7 @@ public Action Command_ForceStart(int client, int args)
 		
 	}
 	
-	startMatch();
+	startKnifeRound();
 	
 	return Plugin_Continue;
 }
@@ -451,5 +528,63 @@ public Action Timer_LiveOn3(Handle timer)
 	g_RestartGame.IntValue = 1;
 	numRestarted++;
  
+	return Plugin_Continue;
+}
+
+//EVENT_ROUND_END
+public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
+{
+	int winner = event.GetInt("winner");
+	//PrintToChatAll("%d", winner);
+	
+	if(knifeRound)
+	{
+		knifeVote = true;
+		if(winner == CS_TEAM_T)
+		{
+			//T Side won the kniferound
+			knifeWinner = CS_TEAM_T;
+		} else if(winner == CS_TEAM_CT)
+		{
+			//CT won the kniferound
+			knifeWinner = CS_TEAM_CT;
+		}  else
+		{
+			PrintToChatAll("Could not get kniferound winner...");	
+		}
+		knifeRound = false;
+		
+		CreateTimer(15.0, Timer_KnifeVote);
+	}
+}
+
+public void performSideSwap()
+{
+    for (int i = 1; i <= connectedClients; i++) {
+		int team = GetClientTeam(i);
+		if (team == CS_TEAM_T) {
+			ChangeClientTeam(i, CS_TEAM_CT);
+		} else if (team == CS_TEAM_CT) {
+			ChangeClientTeam(i, CS_TEAM_T);
+		}
+	}
+}
+
+public Action Timer_KnifeVote(Handle timer)
+{
+	knifeVote = false;
+	knifeRound = false;
+	if(knifeVoteStay < knifeVoteSwitch)
+	{
+		performSideSwap();
+	}
+	
+	for(int i = 1; i <= connectedClients;  i++)
+	{
+		clientVoteStatus[i] = false;
+	}
+	
+	startMatch();
+	
 	return Plugin_Continue;
 }
