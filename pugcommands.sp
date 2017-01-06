@@ -30,7 +30,7 @@ public Plugin:myinfo =
 	name = "Simple ReadyUP System",
 	author = "Bladesmc",
 	description = "!pughelp",
-	version = "1.2",
+	version = "1.2.1",
 	url = "steamcommunity.com/groups/weplaygamesgoodyo"
 }
 
