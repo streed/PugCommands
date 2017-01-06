@@ -6,6 +6,8 @@
 
 ConVar g_WarmupPause;
 ConVar g_RestartGame;
+ConVar g_KnifeEnabled;
+
 bool readyStatus[MAXPLAYERS + 1];
 int readyCount = 0;
 bool live = false;
@@ -21,13 +23,14 @@ int knifeVoteSwitch=0;
 bool clientVoteStatus[MAXPLAYERS + 1];
 int CS_TEAM_CT = 3;
 int CS_TEAM_T = 2;
+int knifeCVar;
 
 public Plugin:myinfo = 
 {
 	name = "Simple ReadyUP System",
 	author = "Bladesmc",
 	description = "!pughelp",
-	version = "1.0",
+	version = "1.2",
 	url = "steamcommunity.com/groups/weplaygamesgoodyo"
 }
 
@@ -83,6 +86,9 @@ public void OnPluginStart()
 	
 	//HOOKS
 	HookEvent("round_end", Event_RoundEnd, EventHookMode_Post);
+	
+	//CONVARS
+	g_KnifeEnabled = CreateConVar("pug_kniferound", "1", "0|1 Enables or disables kniferound.");
 }
 
 public void handleWarmup()
@@ -123,7 +129,15 @@ public int handleReady(bool action)
 	if(readyCount == requiredReadies)
 	{
 		PrintToChatAll("[BLADESMC] All players are ready!");
-		startKnifeRound();
+		knifeCVar =  g_KnifeEnabled.IntValue;
+		PrintToChatAll("pug_kniferound: %d", knifeCVar);
+		if(knifeCVar == 1)
+		{
+			startKnifeRound();
+		} else if(knifeCVar == 0)
+		{
+			startMatch();
+		}
 	}
 	return 0;
 }
@@ -161,6 +175,7 @@ public void startKnifeRound()
 	ServerCommand("mp_give_player_c4 0");
 	ServerCommand("mp_buytime 0");
 	ServerCommand("mp_maxmoney 0");
+	ServerCommand("mp_round_restart_delay 0");
 	ServerCommand("mp_warmup_end");
 	knifeRound = true;
 	PrintToChatAll("[BLADESMC] Knife for sides started!");
@@ -169,7 +184,14 @@ public void startKnifeRound()
 //KNIFEROUND
 public Action Command_KnifeRound(int client, int args)
 {
-	startKnifeRound();
+	PrintToChatAll("pug_kniferound: %d", knifeCVar);
+	if(knifeCVar == 1)
+	{
+		startKnifeRound();
+	} else if(knifeCVar == 0)
+	{
+		startMatch();
+	}
 }
 
 public Action Command_VoteStay(int client, int args)
@@ -294,8 +316,16 @@ public Action Command_ForceStart(int client, int args)
 		
 	}
 	
-	startKnifeRound();
-	
+	knifeCVar =  g_KnifeEnabled.IntValue;
+	PrintToChatAll("pug_kniferound: %d", knifeCVar);
+	if(knifeCVar == 1)
+	{
+		startKnifeRound();
+	} else if(knifeCVar == 0)
+	{
+		startMatch();
+	}
+		
 	return Plugin_Continue;
 }
 
@@ -362,7 +392,7 @@ public Action Command_PauseMatch(int client, int args)
 	}
 	clientThatPaused = client;
 	ServerCommand("mp_pause_match");
-	PrintToChatAll("[BLADESMC] Match has been set to pause during freezetime. Match can only be unpaused by the player that paused the match, or an admin can force-unpause.");
+	PrintToChatAll("[BLADESMC] Match has been set to pause during freezetime. Match can only be unpaused by the player that paused the match, an admin can force-unpause, or players can vote to unpause the match.");
 	
 	return Plugin_Continue;
 }
@@ -455,7 +485,15 @@ public int Handle_ForceStartVoteMenu(Menu menu, MenuAction action, int param1,in
 		/* 0=yes, 1=no */
 		if (param1 == 0)
 		{
-			ServerCommand("mp_unpause_match");
+			knifeCVar = g_KnifeEnabled.IntValue;
+			PrintToChatAll("pug_kniferound: %d", knifeCVar);
+			if(knifeCVar == 1)
+			{
+				startKnifeRound();
+			} else if(knifeCVar == 0)
+			{
+				startMatch();
+			}
 			PrintToChatAll("[BLADESMC] Players have voted to start the match with less than 10 players!");
 		} else
 		{
@@ -484,7 +522,7 @@ public Action Command_ForceStartVote(int client, int args)
 	}
  
 	Menu menu = new Menu(Handle_ForceStartVoteMenu);
-	menu.SetTitle("Force start?");
+	menu.SetTitle("Start the match without full teams?");
 	menu.AddItem("yes", "Yes");
 	menu.AddItem("no", "No");
 	menu.ExitButton = false;
@@ -514,9 +552,9 @@ public void OnClientConnected(int client)
 public Action Timer_LiveOn3(Handle timer)
 {
 	// Create a global variable visible only in the local scope (this function).
-	static int numRestarted = 0;
+	static int numRestarted = 1;
  
-	if (numRestarted >= 3) 
+	if (numRestarted > 3) 
         {
 		numRestarted = 0;
 		PrintToChatAll("[BLADESMC] LIVE!!!");
@@ -524,7 +562,7 @@ public Action Timer_LiveOn3(Handle timer)
 		PrintToChatAll("[BLADESMC] LIVE!!!");
 		return Plugin_Stop;
 	}
- 
+	PrintToChatAll("[BLADESMC] Restarting in 1 second. (%d/3)", numRestarted);
 	g_RestartGame.IntValue = 1;
 	numRestarted++;
  
@@ -554,6 +592,13 @@ public Action Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
 		}
 		knifeRound = false;
 		
+		for (int i = 1; i <= connectedClients; i++) {
+			int team = GetClientTeam(i);
+			if (team == winner) {
+				PrintToChat(i, "[BLADESMC] Your team won the knife round. You have 15 seconds to vote. Type !stay or !switch to cast your vote.");
+			}
+		}
+		ServerCommand("mp_restartgame 15");
 		CreateTimer(15.0, Timer_KnifeVote);
 	}
 }
@@ -578,6 +623,9 @@ public Action Timer_KnifeVote(Handle timer)
 	{
 		performSideSwap();
 	}
+	
+	knifeVoteStay = 0;
+	knifeVoteSwitch = 0;
 	
 	for(int i = 1; i <= connectedClients;  i++)
 	{
