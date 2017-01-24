@@ -148,6 +148,7 @@ public void startMatch()
 {
 	ServerCommand("exec gamemode_competitive.cfg");
 	ServerCommand("bot_kick");
+	ServerCommand("mp_give_player_c4 0");
 	//g_WarmupTime.IntValue = 1;
 	//g_WarmupPause.IntValue = 0;
 	//GO LIVE
@@ -158,12 +159,7 @@ public void startMatch()
 	ServerCommand("mp_warmup_end");
 	CreateTimer(3.0, Timer_LiveOn3, _, TIMER_REPEAT);
 	
-	/*NOTIFY PLAYERS
-	PrintToChatAll("[BLADESMC] LIVE ON 3 RESTARTS!!!");
-	PrintToChatAll("[BLADESMC] LIVE ON 3 RESTARTS!!!");
-	PrintToChatAll("[BLADESMC] LIVE ON 3 RESTARTS!!!");
-	//PrintToChatAll("[BLADESMC] LIVE IN 5 SECONDS!!!");
-	*/
+
 	live = true;
 }
 
